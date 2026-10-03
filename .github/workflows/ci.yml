@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: "3.10"
+          - os: ubuntu-24.04
+            python: "3.13"
+          - os: macos-latest
+            python: "3.13"
+    runs-on: ${{ matrix.os }}
+    env:
+      # Ubuntu ships versioned LLVM tools; the profile format must match clang.
+      CLANGXX: ${{ startsWith(matrix.os, 'ubuntu') && 'clang++-18' || 'clang++' }}
+      LLVM_COV: ${{ startsWith(matrix.os, 'ubuntu') && 'llvm-cov-18' || '' }}
+      LLVM_PROFDATA: ${{ startsWith(matrix.os, 'ubuntu') && 'llvm-profdata-18' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install LLVM 18
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang-18 llvm-18
+      - name: Toolchain
+        run: |
+          git --version
+          $CLANGXX --version | head -1
+          g++ --version | head -1
+      - run: pip install -e '.[test]'
+      - name: Tests
+        shell: bash  # -o pipefail
+        run: pytest -v -rs | tee pytest.txt
+      - name: No skipped end-to-end tests on Linux
+        if: startsWith(matrix.os, 'ubuntu')
+        run: "! grep -E 'SKIPPED.*test_e2e' pytest.txt"
